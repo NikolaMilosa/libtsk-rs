@@ -215,7 +215,7 @@ impl std::fmt::Debug for TskFs {
             .finish()
     }
 }
-
+#[derive(Debug)]
 pub enum FSType {
     NTFS,
     FAT12,
