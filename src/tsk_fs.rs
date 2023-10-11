@@ -1,14 +1,13 @@
-use std::ffi::CStr;
-use std::ptr::NonNull;
 use crate::{
+    bindings as tsk,
     errors::TskError,
-    tsk_img::TskImg,
+    tsk_fs_dir::{IntoDirNameIter, TskFsDir},
     tsk_fs_file::TskFsFile,
     tsk_fs_name::TskFsName,
-    tsk_fs_dir::{TskFsDir, IntoDirNameIter},
-    bindings as tsk
+    tsk_img::TskImg,
 };
-
+use std::ffi::CStr;
+use std::ptr::NonNull;
 
 /// Wrapper for TSK_FS_INFO
 pub struct TskFs {
@@ -21,29 +20,30 @@ impl TskFs {
     /// Create a TSK_FS_INFO wrapper given the TskImg and offset of the file system
     pub fn from_fs_offset(tsk_img: &TskImg, offset: u64) -> Result<TskFs, TskError> {
         // Get a pointer to the TSK_FS_INFO sturct
-        let tsk_fs_ptr = unsafe {tsk::tsk_fs_open_img(
-            tsk_img.handle.as_ptr(),
-            offset as i64 as _,
-            0
-        )};
+        let tsk_fs_ptr =
+            unsafe { tsk::tsk_fs_open_img(tsk_img.handle.as_ptr(), offset as i64 as _, 0) };
 
         if tsk_fs_ptr.is_null() {
             // Get a ptr to the error msg
-            let error_msg_ptr = unsafe { NonNull::new(tsk::tsk_error_get() as _) }
-                .ok_or(
-                    TskError::lib_tsk_error(
-                        format!("There was an error opening the fs handle at offset {}. (no context)", offset)
-                    )
-                )?;
+            let error_msg_ptr = unsafe { NonNull::new(tsk::tsk_error_get() as _) }.ok_or(
+                TskError::lib_tsk_error(format!(
+                    "There was an error opening the fs handle at offset {}. (no context)",
+                    offset
+                )),
+            )?;
             // Get the error message from the string
             let error_msg = unsafe { CStr::from_ptr(error_msg_ptr.as_ptr()) }.to_string_lossy();
             // Return an error which includes the TSK error message
-            return Err(TskError::lib_tsk_error(
-                format!("There was an error opening the fs handle at offset {}: {}", offset, error_msg)
-            ));
+            return Err(TskError::lib_tsk_error(format!(
+                "There was an error opening the fs handle at offset {}: {}",
+                offset, error_msg
+            )));
         }
 
-        Ok( Self { tsk_fs_ptr, _release: true } )
+        Ok(Self {
+            tsk_fs_ptr,
+            _release: true,
+        })
     }
 
     /// Open a file by a given path. (use '/' as separators)
@@ -63,23 +63,29 @@ impl TskFs {
 
     /// Open a file name iterator based on root inode
     pub fn iter_file_names<'fs>(&'fs self) -> Result<FsNameIter<'fs>, TskError> {
-        let root_inode = unsafe {(*self.tsk_fs_ptr).root_inum};
+        let root_inode = unsafe { (*self.tsk_fs_ptr).root_inum };
         let root_dir = TskFsDir::from_meta(self, root_inode)?;
 
-        Ok( FsNameIter {
+        Ok(FsNameIter {
             tsk_fs: self,
             dir_iter_stack: vec![root_dir.into_name_iter()],
-            path_stack: Vec::new()
-        } )
+            path_stack: Vec::new(),
+        })
     }
 
     /// Open a file name iterator based on path
-    pub fn iter_file_names_from_inode<'fs>(&'fs self, inode: u64) -> Result<FsNameIter<'fs>, TskError> {
+    pub fn iter_file_names_from_inode<'fs>(
+        &'fs self,
+        inode: u64,
+    ) -> Result<FsNameIter<'fs>, TskError> {
         FsNameIter::from_inode(self, inode)
     }
 
     /// Open a file name iterator based on path
-    pub fn iter_file_names_from_path<'fs>(&'fs self, path: &str) -> Result<FsNameIter<'fs>, TskError> {
+    pub fn iter_file_names_from_path<'fs>(
+        &'fs self,
+        path: &str,
+    ) -> Result<FsNameIter<'fs>, TskError> {
         FsNameIter::from_path(self, path)
     }
 
@@ -88,27 +94,27 @@ impl TskFs {
         unsafe { (*self.tsk_fs_ptr).block_count }
     }
 
-    /// Number of bytes that precede each block (currently only used for RAW CDs) 
+    /// Number of bytes that precede each block (currently only used for RAW CDs)
     pub fn block_pre_size(&self) -> u32 {
         unsafe { (*self.tsk_fs_ptr).block_pre_size }
     }
 
-    /// Number of bytes that follow each block (currently only used for RAW CDs) 
+    /// Number of bytes that follow each block (currently only used for RAW CDs)
     pub fn block_post_size(&self) -> u32 {
         unsafe { (*self.tsk_fs_ptr).block_post_size }
     }
 
-    /// Size of each block (in bytes) 
+    /// Size of each block (in bytes)
     pub fn block_size(&self) -> u32 {
         unsafe { (*self.tsk_fs_ptr).block_size }
     }
 
-    /// Size of device block (typically always 512) 
+    /// Size of device block (typically always 512)
     pub fn dev_bsize(&self) -> u32 {
         unsafe { (*self.tsk_fs_ptr).dev_bsize }
     }
 
-    /// Address of first block. 
+    /// Address of first block.
     pub fn first_block(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).first_block }
     }
@@ -118,31 +124,56 @@ impl TskFs {
         unsafe { (*self.tsk_fs_ptr).first_inum }
     }
 
-    /// Number of metadata addresses. 
+    /// Number of metadata addresses.
     pub fn inum_count(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).inum_count }
     }
 
-    /// Address of journal inode. 
+    /// Address of journal inode.
     pub fn journ_inum(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).journ_inum }
     }
 
-    /// Address of last block as reported by file system (could be larger than 
-    /// last_block in image if end of image does not exist) 
+    /// Address of last block as reported by file system (could be larger than
+    /// last_block in image if end of image does not exist)
     pub fn last_block(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).last_block }
     }
 
-    /// Address of last block – adjusted so that it is equal to the last block 
-    /// in the image or volume (if image is not complete) 
+    /// Address of last block – adjusted so that it is equal to the last block
+    /// in the image or volume (if image is not complete)
     pub fn last_block_act(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).last_block_act }
     }
 
-    /// Last valid metadata address. 
+    /// Last valid metadata address.
     pub fn last_inum(&self) -> u64 {
         unsafe { (*self.tsk_fs_ptr).last_inum }
+    }
+
+    pub fn fs_type(&self) -> FSType {
+        let ftype: u32 = unsafe { (*self.tsk_fs_ptr).ftype };
+        match ftype {
+            0x1 => FSType::NTFS,
+            0x2 => FSType::FAT12,
+            0x4 => FSType::FAT16,
+            0x8 => FSType::FAT32,
+            0xa => FSType::EXFAT,
+            0x10 => FSType::FFS1,
+            0x20 => FSType::FFS1B,
+            0x40 => FSType::FFS2,
+            0x80 => FSType::EXT2,
+            0x100 => FSType::EXT3,
+            0x200 => FSType::SWAP,
+            0x400 => FSType::RAW,
+            0x800 => FSType::ISO9660,
+            0x1000 => FSType::HFS,
+            0x2000 => FSType::EXT4,
+            0x4000 => FSType::YAFFS2,
+            0x8000 => FSType::HFSLegacy,
+            0x10000 => FSType::APFS,
+            _ => FSType::UNSUPP,
+        }
     }
 }
 impl Into<*mut tsk::TSK_FS_INFO> for &TskFs {
@@ -170,53 +201,69 @@ impl Drop for TskFs {
 impl std::fmt::Debug for TskFs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TskFs")
-         .field("block_count", &self.block_count())
-         .field("block_pre_size", &self.block_pre_size())
-         .field("block_post_size", &self.block_post_size())
-         .field("dev_bsize", &self.dev_bsize())
-         .field("first_block", &self.first_block())
-         .field("first_inum", &self.first_inum())
-         .field("inum_count", &self.inum_count())
-         .field("journ_inum", &self.journ_inum())
-         .field("last_block", &self.last_block())
-         .field("last_block_act", &self.last_block_act())
-         .field("last_inum", &self.last_inum())
-         .finish()
+            .field("block_count", &self.block_count())
+            .field("block_pre_size", &self.block_pre_size())
+            .field("block_post_size", &self.block_post_size())
+            .field("dev_bsize", &self.dev_bsize())
+            .field("first_block", &self.first_block())
+            .field("first_inum", &self.first_inum())
+            .field("inum_count", &self.inum_count())
+            .field("journ_inum", &self.journ_inum())
+            .field("last_block", &self.last_block())
+            .field("last_block_act", &self.last_block_act())
+            .field("last_inum", &self.last_inum())
+            .finish()
     }
 }
 
+pub enum FSType {
+    NTFS,
+    FAT12,
+    FAT16,
+    FAT32,
+    EXFAT,
+    FFS1,
+    FFS1B,
+    FFS2,
+    EXT2,
+    EXT3,
+    SWAP,
+    RAW,
+    ISO9660,
+    HFS,
+    EXT4,
+    YAFFS2,
+    HFSLegacy,
+    APFS,
+    LOGICAL,
+    UNSUPP,
+}
 
 #[derive(Debug)]
 pub struct FsNameIter<'fs> {
     tsk_fs: &'fs TskFs,
     dir_iter_stack: Vec<IntoDirNameIter<'fs>>,
-    path_stack: Vec<String>
+    path_stack: Vec<String>,
 }
 impl<'fs> FsNameIter<'fs> {
-    pub fn from_path(
-        tsk_fs: &'fs TskFs,
-        path: &str
-    ) -> Result<FsNameIter<'fs>, TskError> {
+    pub fn from_path(tsk_fs: &'fs TskFs, path: &str) -> Result<FsNameIter<'fs>, TskError> {
         let dir = TskFsDir::from_path(tsk_fs, path)?;
 
-        Ok( FsNameIter {
+        Ok(FsNameIter {
             tsk_fs,
             dir_iter_stack: vec![dir.into_name_iter()],
-            path_stack: Vec::new()
-        } )
+            path_stack: Vec::new(),
+        })
     }
 
-    pub fn from_inode(
-        tsk_fs: &'fs TskFs,
-        inode: u64
-    ) -> Result<FsNameIter<'fs>, TskError> {
+    pub fn from_inode(tsk_fs: &'fs TskFs, inode: u64) -> Result<FsNameIter<'fs>, TskError> {
         let dir = TskFsDir::from_meta(tsk_fs, inode)?;
 
-        Ok( FsNameIter {
+        Ok(FsNameIter {
             tsk_fs,
             dir_iter_stack: vec![dir.into_name_iter()],
-            path_stack: Vec::new()
-        } )
+            path_stack: Vec::new(),
+        })
     }
 }
 impl<'fs> Iterator for FsNameIter<'fs> {
@@ -231,7 +278,7 @@ impl<'fs> Iterator for FsNameIter<'fs> {
                     if tsk_fn.is_dir() {
                         let file_name = match tsk_fn.name() {
                             Some(n) => n,
-                            None => break
+                            None => break,
                         };
 
                         if &file_name == "." || &file_name == ".." {
@@ -240,7 +287,7 @@ impl<'fs> Iterator for FsNameIter<'fs> {
 
                         let tsk_fs_dir = match TskFsDir::from_meta(fs, tsk_fn.get_inode()) {
                             Ok(d) => d,
-                            Err(_e) => continue
+                            Err(_e) => continue,
                         };
 
                         let new_dir_iter = tsk_fs_dir.into_name_iter();
@@ -248,10 +295,10 @@ impl<'fs> Iterator for FsNameIter<'fs> {
 
                         let path = self.path_stack.join("/");
                         self.path_stack.push(file_name);
-                        return Some((path, tsk_fn))
+                        return Some((path, tsk_fn));
                     } else {
                         let path = self.path_stack.join("/");
-                        return Some((path, tsk_fn))
+                        return Some((path, tsk_fn));
                     }
                 } else {
                     self.dir_iter_stack.pop();
@@ -261,7 +308,7 @@ impl<'fs> Iterator for FsNameIter<'fs> {
                 self.dir_iter_stack.pop();
 
                 // No more dir iterators in stack
-                if self.dir_iter_stack.is_empty(){
+                if self.dir_iter_stack.is_empty() {
                     break;
                 }
             }
