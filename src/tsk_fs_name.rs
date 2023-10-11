@@ -55,6 +55,15 @@ impl TskFsName {
         let shrt_name = unsafe { CStr::from_ptr((*self.0).shrt_name) }.to_string_lossy();
         Some(shrt_name.to_string().clone())
     }
+
+    pub fn is_allocated(&self) -> bool {
+        let flag: u32 = unsafe { (*(*self).0).flags };
+        match flag {
+            1 => true,
+            2 => false,
+            _ => false, //shouldn't happen
+        }
+    }
 }
 impl std::fmt::Debug for TskFsName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
